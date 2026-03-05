@@ -1,0 +1,11 @@
+# local configuration
+inc/connect.php
+
+# environment
+.env
+
+# logs
+*.log
+
+# macOS
+.DS_Store
