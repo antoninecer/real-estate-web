@@ -8,38 +8,36 @@ require_once __DIR__.'/inc/connect.php';
 echo "AI worker start\n\n";
 
 
-/* -----------------------------
-   PARAMETRY
-------------------------------*/
+/* ---------------------------------------------------
+   PARAMETRY (CLI + GET)
+--------------------------------------------------- */
 
-$params = [];
+$params=[];
 
-/* CLI parametry */
-if (php_sapi_name() === "cli") {
+if(php_sapi_name()==="cli"){
     global $argv;
-    foreach ($argv as $a) {
-        if (strpos($a,'=') !== false) {
-            [$k,$v] = explode('=',$a,2);
-            $params[$k] = $v;
+    foreach($argv as $a){
+        if(strpos($a,'=')!==false){
+            [$k,$v]=explode('=',$a,2);
+            $params[$k]=$v;
         }
     }
 }
 
-/* GET parametry */
-$params = array_merge($params, $_GET);
+$params=array_merge($params,$_GET);
 
 
-/* -----------------------------
+/* ---------------------------------------------------
    NASTAVENÍ
-------------------------------*/
+--------------------------------------------------- */
 
-$profile   = $params["profile"] ?? "family";
-$limit     = (int)($params["limit"] ?? 200);
-$minHard   = (int)($params["min_hard"] ?? 0);
-$prune     = (int)($params["prune"] ?? 0);
+$profile = $params["profile"] ?? "family";
+$limit   = (int)($params["limit"] ?? 200);
+$minHard = (int)($params["min_hard"] ?? 0);
+$prune   = (int)($params["prune"] ?? 0);
 
 if(!in_array($profile,["family","investor"])) {
-    $profile = "family";
+    $profile="family";
 }
 
 echo "PROFILE: $profile\n";
@@ -47,9 +45,9 @@ echo "LIMIT: $limit\n";
 echo "MIN HARD SCORE: $minHard\n\n";
 
 
-/* -----------------------------
+/* ---------------------------------------------------
    PRUNE TABULKY
-------------------------------*/
+--------------------------------------------------- */
 
 if($prune){
 
@@ -61,13 +59,13 @@ if($prune){
 }
 
 
-/* -----------------------------
+/* ---------------------------------------------------
    SYSTEM PROMPT
-------------------------------*/
+--------------------------------------------------- */
 
-if($profile === "investor"){
+if($profile==="investor"){
 
-$SYSTEM = <<<PROMPT
+$SYSTEM=<<<PROMPT
 Jsi analytik realitních investic v Praze.
 
 Hodnotíš byt jako investiční příležitost.
@@ -113,7 +111,7 @@ PROMPT;
 }
 else{
 
-$SYSTEM = <<<PROMPT
+$SYSTEM=<<<PROMPT
 Jsi analytik bytů pro rodinné bydlení v Praze.
 
 Model kupujícího:
@@ -127,7 +125,7 @@ Důležité faktory:
 
 DOPRAVA
 MHD do 400 m velké plus.
-Metro je plus.
+Metro je velké plus.
 Nad 1500 m penalizuj.
 
 PARKOVÁNÍ
@@ -135,7 +133,7 @@ Parkování nebo garáž je velké plus.
 
 LOKALITA
 Blízkost centra je plus.
-Parky a zeleň jsou velké plus (pes).
+Parky a zeleň jsou velké plus.
 
 BYT
 Větší plocha je plus.
@@ -173,16 +171,15 @@ PROMPT;
 
 }
 
-
 $MODEL  = "qwen3:4b-instruct";
 $OLLAMA = "http://macmini:1234/api/generate";
 
 
-/* -----------------------------
-   NAJDI INZERÁTY
-------------------------------*/
+/* ---------------------------------------------------
+   VYBER INZERÁTŮ
+--------------------------------------------------- */
 
-$sql = "
+$sql="
 SELECT
 e.hash_id,
 e.name,
@@ -206,33 +203,33 @@ ORDER BY v.hard_score DESC
 LIMIT :limit
 ";
 
-$stmt = $pdo->prepare($sql);
+$stmt=$pdo->prepare($sql);
 $stmt->bindValue(":limit",$limit,PDO::PARAM_INT);
 $stmt->bindValue(":minHard",$minHard,PDO::PARAM_INT);
 $stmt->execute();
 
-$estates = $stmt->fetchAll();
+$estates=$stmt->fetchAll();
 
 echo "Found ".count($estates)." estates\n\n";
 
+$totalStart=microtime(true);
+$i=0;
 
-$totalStart = microtime(true);
-$i = 0;
 
-
-/* -----------------------------
+/* ---------------------------------------------------
    LOOP
-------------------------------*/
+--------------------------------------------------- */
 
 foreach($estates as $e){
 
 $i++;
 
-$hash = $e["hash_id"];
+$hash=$e["hash_id"];
+
 
 /* DATA BLOCK */
 
-$dataBlock = "
+$dataBlock="
 
 DATA
 Cena: {$e["price_czk"]} Kč
@@ -248,26 +245,28 @@ Hard score: {$e["hard_score"]}
 
 ";
 
-$desc = trim($e["description"] ?? "");
+$desc=trim($e["description"] ?? "");
 
-$prompt = $SYSTEM."\n\n".$dataBlock."\nINZERÁT:\n".$desc;
+$prompt=$SYSTEM."\n\n".$dataBlock."\nINZERÁT:\n".$desc;
 
 
-/* REQUEST */
+/* ---------------------------------------------------
+   OLLAMA REQUEST
+--------------------------------------------------- */
 
-$payload = [
+$payload=[
 "model"=>$MODEL,
 "prompt"=>$prompt,
 "stream"=>false,
 "options"=>[
 "temperature"=>0.1,
-"num_predict"=>500
+"num_predict"=>600
 ]
 ];
 
-$start = microtime(true);
+$start=microtime(true);
 
-$ch = curl_init($OLLAMA);
+$ch=curl_init($OLLAMA);
 
 curl_setopt_array($ch,[
 CURLOPT_RETURNTRANSFER=>true,
@@ -277,65 +276,82 @@ CURLOPT_POSTFIELDS=>json_encode($payload),
 CURLOPT_TIMEOUT=>180
 ]);
 
-$response = curl_exec($ch);
-$err = curl_error($ch);
+$response=curl_exec($ch);
+$err=curl_error($ch);
 curl_close($ch);
 
-$time = round(microtime(true)-$start,2);
+$time=round(microtime(true)-$start,2);
 
 if(!$response){
-
-echo "#$i hash $hash CURL ERROR $err\n";
-continue;
-
+    echo "#$i hash $hash CURL ERROR $err\n";
+    continue;
 }
 
 
-/* -----------------------------
-   PARSE
-------------------------------*/
+/* ---------------------------------------------------
+   PARSE RESPONSE
+--------------------------------------------------- */
 
-$data = json_decode($response,true);
+$data=json_decode($response,true);
 
 if(!isset($data["response"])){
-
-echo "#$i hash $hash invalid response\n";
-continue;
-
+    echo "#$i hash $hash invalid response\n";
+    continue;
 }
 
-$text = trim($data["response"]);
+$text=trim($data["response"]);
 
-/* odstran JSON fences */
+/* odstran code fences */
 
-$text = preg_replace('/```.*?\n/','',$text);
-$text = str_replace("```","",$text);
+$text=preg_replace('/```.*?\n/','',$text);
+$text=str_replace("```","",$text);
 
-
-/* pokus najít JSON blok */
+/* najdi JSON */
 
 if(preg_match('/\{.*\}/s',$text,$m)){
-$jsonText = $m[0];
+    $jsonText=$m[0];
 }else{
-$jsonText = $text;
+    $jsonText=$text;
 }
 
-$json = json_decode($jsonText,true);
+$json=json_decode($jsonText,true);
 
 if(!$json){
 
-echo "#$i hash $hash JSON parse fail ($time s)\n";
-echo $text."\n\n";
-continue;
+    echo "#$i hash $hash JSON parse fail ($time s)\n";
+    echo $text."\n\n";
+    continue;
 
 }
 
 
-/* -----------------------------
-   DB INSERT
-------------------------------*/
+/* ---------------------------------------------------
+   OPRAVA AI SCORE (hlavní fix)
+--------------------------------------------------- */
 
-$stmt = $pdo->prepare("
+$break=$json["breakdown"] ?? [];
+
+$aiScore =
+(int)($break["lokalita"] ?? 0) +
+(int)($break["komfort"] ?? 0) +
+(int)($break["dispozice"] ?? 0) +
+(int)($break["riziko"] ?? 0) +
+(int)($break["hodnota"] ?? 0);
+
+/* fallback */
+
+if($aiScore===0 && isset($json["ai_score"])){
+    $aiScore=(int)$json["ai_score"];
+}
+
+if($aiScore>100) $aiScore=100;
+
+
+/* ---------------------------------------------------
+   DB INSERT
+--------------------------------------------------- */
+
+$stmt=$pdo->prepare("
 INSERT INTO estate_ai_reviews
 (hash_id,ai_score,verdict,strengths,weaknesses,summary,breakdown)
 VALUES
@@ -344,32 +360,33 @@ VALUES
 
 $stmt->execute([
 ":hash_id"=>$hash,
-":ai_score"=>$json["ai_score"] ?? null,
+":ai_score"=>$aiScore,
 ":verdict"=>$json["verdict"] ?? null,
 ":strengths"=>$json["strengths"] ?? null,
 ":weaknesses"=>$json["weaknesses"] ?? null,
 ":summary"=>$json["summary"] ?? null,
-":breakdown"=>json_encode($json["breakdown"] ?? [])
+":breakdown"=>json_encode($break)
 ]);
 
 
-/* -----------------------------
+/* ---------------------------------------------------
    LOG
-------------------------------*/
+--------------------------------------------------- */
 
-echo "#$i hash $hash INSERT score=".$json["ai_score"]." verdict=".$json["verdict"]." ($time s)\n";
+echo "#$i hash $hash INSERT score=$aiScore verdict=".$json["verdict"]." ($time s)\n";
 
+echo " breakdown: ".json_encode($break)."\n";
 echo " + ".$json["strengths"]."\n";
 echo " - ".$json["weaknesses"]."\n\n";
 
 }
 
 
-/* -----------------------------
-   STATS
-------------------------------*/
+/* ---------------------------------------------------
+   STATISTIKA
+--------------------------------------------------- */
 
-$total = round(microtime(true)-$totalStart,2);
+$total=round(microtime(true)-$totalStart,2);
 
 echo "\nTotal time: $total s\n";
 
