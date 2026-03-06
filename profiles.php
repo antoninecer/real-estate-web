@@ -125,13 +125,12 @@ $currentConditions=explode(',',$profile['building_condition']);
 
 <!DOCTYPE html>
 <html lang="cs">
+
 <head>
 
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Search profil</title>
+<title>Přehled pražských bytů</title>
 
-<link rel="stylesheet" href="styles.css">
+<?php require_once __DIR__.'/inc/head.php'; ?>
 
 </head>
 <body>

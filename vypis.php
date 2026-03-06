@@ -1,5 +1,4 @@
 <?php
-
 require_once __DIR__.'/inc/connect.php';
 require_once __DIR__.'/inc/helpers.php';
 
@@ -55,6 +54,7 @@ $minScore = $_GET['min_score'] ?? '';
 $maxPrice = $_GET['max_price'] ?? '';
 $minArea  = $_GET['min_area'] ?? '';
 $ward     = $_GET['ward'] ?? '';
+$parking  = $_GET['parking'] ?? '';
 
 $where=[];
 $params=[];
@@ -79,12 +79,18 @@ if($ward!==''){
     $params[':ward']=$ward;
 }
 
+/* nový filtr parkování */
+
+if($parking){
+    $where[]="features::text ILIKE '%garage%' OR features::text ILIKE '%parking%'";
+}
+
 $whereSql='';
 if($where){
     $whereSql="WHERE ".implode(" AND ",$where);
 }
 
-/* počet bytů po filtraci */
+/* počet bytů */
 
 $countSql="
 SELECT count(*)
@@ -96,7 +102,7 @@ $stmt=$pdo->prepare($countSql);
 $stmt->execute($params);
 $total=$stmt->fetchColumn();
 
-/* seznam ward pro dropdown */
+/* seznam ward */
 
 $wards=$pdo->query("
 SELECT DISTINCT ward
@@ -141,16 +147,13 @@ exit;
 }
 
 ?>
+
 <!DOCTYPE html>
 <html lang="cs">
 <head>
-
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-
 <title>Přehled pražských bytů</title>
 
-<link rel="stylesheet" href="styles.css">
+<?php require_once __DIR__.'/inc/head.php'; ?>
 
 </head>
 
@@ -191,6 +194,14 @@ Městská část
 <?php endforeach; ?>
 
 </select>
+
+<label style="margin-left:10px">
+
+<input type="checkbox" name="parking" value="1" <?=($parking?'checked':'')?>>
+
+Parkování / garáž
+
+</label>
 
 <button>Filtrovat</button>
 

@@ -1,41 +1,42 @@
 <?php
-declare(strict_types=1);
-header('Content-Type: application/json');
 
-$UPSTREAM = 'http://macmini:1234/v1/chat/completions';
-$MODEL = 'qwen/qwen3-4b-2507'; // natvrdo
+$input = json_decode(file_get_contents("php://input"), true);
 
-$in = json_decode(file_get_contents('php://input'), true);
+$system = "";
+$user   = "";
 
-if (!isset($in['messages'])) {
-  http_response_code(400);
-  echo json_encode(['error'=>'Missing messages']);
-  exit;
+foreach ($input["messages"] as $m) {
+    if ($m["role"] === "system") $system = $m["content"];
+    if ($m["role"] === "user")   $user   = $m["content"];
 }
+
+$prompt = $system . "\n\nInzerát:\n" . $user;
 
 $payload = [
-  'model' => $MODEL,
-  'temperature' => (float)($in['temperature'] ?? 0.1),
-  'max_tokens' => (int)($in['max_tokens'] ?? 400),
-  'messages' => $in['messages']
+    "model" => "qwen3:4b-instruct",
+    "prompt" => $prompt,
+    "stream" => false,
+    "options" => [
+        "temperature" => $input["temperature"] ?? 0.1,
+        "num_predict" => $input["max_tokens"] ?? 400
+    ]
 ];
 
-$ch = curl_init($UPSTREAM);
+$ch = curl_init("http://macmini:1234/api/generate");
+
 curl_setopt_array($ch, [
-  CURLOPT_POST => true,
-  CURLOPT_RETURNTRANSFER => true,
-  CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-  CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST => true,
+    CURLOPT_HTTPHEADER => ["Content-Type: application/json"],
+    CURLOPT_POSTFIELDS => json_encode($payload)
 ]);
 
-$out = curl_exec($ch);
-$err = curl_error($ch);
+$response = curl_exec($ch);
 curl_close($ch);
 
-if($out === false){
-  http_response_code(502);
-  echo json_encode(['error'=>$err]);
-  exit;
-}
+$data = json_decode($response, true);
 
-echo $out;
+echo json_encode([
+    "model" => "qwen3:4b-instruct",
+    "response" => $data["response"] ?? ""
+]);

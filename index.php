@@ -4,6 +4,7 @@ require __DIR__.'/inc/menu.php';
 <!DOCTYPE html>
 <html lang="cs">
 <head>
+    <?php require_once __DIR__.'/inc/head.php'; ?>
 <meta charset="UTF-8">
 <title>Real Estate Intelligence</title>
 
