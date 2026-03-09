@@ -8,9 +8,9 @@ require_once __DIR__.'/inc/connect.php';
 echo "AI worker start\n\n";
 
 
-/* ---------------------------------------------------
-   PARAMETRY (CLI + GET)
---------------------------------------------------- */
+/* --------------------------------------------------
+   PARAMETRY
+-------------------------------------------------- */
 
 $params=[];
 
@@ -26,132 +26,25 @@ if(php_sapi_name()==="cli"){
 
 $params=array_merge($params,$_GET);
 
-
-/* ---------------------------------------------------
-   NASTAVENÍ
---------------------------------------------------- */
-
-$profile = $params["profile"] ?? "family";
 $limit   = (int)($params["limit"] ?? 200);
 $minHard = (int)($params["min_hard"] ?? 0);
-$prune   = (int)($params["prune"] ?? 0);
 
-if(!in_array($profile,["family","investor"])) {
-    $profile="family";
-}
-
-echo "PROFILE: $profile\n";
 echo "LIMIT: $limit\n";
 echo "MIN HARD SCORE: $minHard\n\n";
 
 
-/* ---------------------------------------------------
-   PRUNE TABULKY
---------------------------------------------------- */
-
-if($prune){
-
-    echo "PRUNE estate_ai_reviews\n";
-
-    $pdo->exec("TRUNCATE estate_ai_reviews RESTART IDENTITY");
-
-    echo "DONE\n\n";
-}
-
-
-/* ---------------------------------------------------
+/* --------------------------------------------------
    SYSTEM PROMPT
---------------------------------------------------- */
+-------------------------------------------------- */
 
-if($profile==="investor"){
-
-$SYSTEM=<<<PROMPT
-Jsi analytik realitních investic v Praze.
-
-Hodnotíš byt jako investiční příležitost.
-
-Důležité:
-
-- cena za m2
-- lokalita
-- dostupnost MHD
-- potenciál pronájmu
-- technický stav domu
-
-Preferuj menší byty a nižší cenu.
-
-Distribuce:
-
-40% IGNORE
-40% CHECK
-15% GOOD
-5% EXCEPTIONAL
-
-Vrať pouze JSON:
-
-{
- "ai_score":0,
- "breakdown":{
-  "lokalita":0,
-  "komfort":0,
-  "dispozice":0,
-  "riziko":0,
-  "hodnota":0
- },
- "verdict":"IGNORE",
- "strengths":"",
- "weaknesses":"",
- "summary":""
-}
-
-Každá položka breakdown 0–20.
-ai_score je součet (0–100).
-PROMPT;
-
-}
-else{
-
-$SYSTEM=<<<PROMPT
+$SYSTEM = <<<PROMPT
 Jsi analytik bytů pro rodinné bydlení v Praze.
 
-Model kupujícího:
+Vyhodnoť byt a vrať pouze JSON.
 
-- rodina
-- pes
-- dvě auta
-- práce v centru
-
-Důležité faktory:
-
-DOPRAVA
-MHD do 400 m velké plus.
-Metro je velké plus.
-Nad 1500 m penalizuj.
-
-PARKOVÁNÍ
-Parkování nebo garáž je velké plus.
-
-LOKALITA
-Blízkost centra je plus.
-Parky a zeleň jsou velké plus.
-
-BYT
-Větší plocha je plus.
-Balkon nebo terasa je velké plus.
-
-PŘÍZEMÍ penalizuj.
-
-Distribuce:
-
-35% IGNORE
-40% CHECK
-20% GOOD
-5% EXCEPTIONAL
-
-Vrať pouze JSON:
+NEPIŠ text mimo JSON.
 
 {
- "ai_score":0,
  "breakdown":{
   "lokalita":0,
   "komfort":0,
@@ -159,25 +52,22 @@ Vrať pouze JSON:
   "riziko":0,
   "hodnota":0
  },
- "verdict":"IGNORE",
  "strengths":"",
  "weaknesses":"",
  "summary":""
 }
 
 Každá položka breakdown 0–20.
-ai_score je součet.
 PROMPT;
 
-}
 
 $MODEL  = "qwen3:4b-instruct";
 $OLLAMA = "http://macmini:1234/api/generate";
 
 
-/* ---------------------------------------------------
-   VYBER INZERÁTŮ
---------------------------------------------------- */
+/* --------------------------------------------------
+   NAJDI JEN BYTY BEZ AI
+-------------------------------------------------- */
 
 $sql="
 SELECT
@@ -196,9 +86,12 @@ e.garage,
 v.hard_score
 FROM estates e
 JOIN v_estates_hard_score v USING(hash_id)
-LEFT JOIN estate_ai_reviews r USING(hash_id)
-WHERE r.hash_id IS NULL
-AND v.hard_score >= :minHard
+WHERE v.hard_score >= :minHard
+AND NOT EXISTS (
+    SELECT 1
+    FROM estate_ai_reviews r
+    WHERE r.hash_id = e.hash_id
+)
 ORDER BY v.hard_score DESC
 LIMIT :limit
 ";
@@ -210,15 +103,23 @@ $stmt->execute();
 
 $estates=$stmt->fetchAll();
 
-echo "Found ".count($estates)." estates\n\n";
+$count=count($estates);
+
+echo "Found $count estates needing AI\n\n";
+
+if($count===0){
+    echo "Nothing to evaluate\n";
+    exit;
+}
+
 
 $totalStart=microtime(true);
 $i=0;
 
 
-/* ---------------------------------------------------
+/* --------------------------------------------------
    LOOP
---------------------------------------------------- */
+-------------------------------------------------- */
 
 foreach($estates as $e){
 
@@ -231,7 +132,6 @@ $hash=$e["hash_id"];
 
 $dataBlock="
 
-DATA
 Cena: {$e["price_czk"]} Kč
 Plocha: {$e["usable_area"]} m2
 Patro: {$e["floor_number"]}
@@ -250,9 +150,9 @@ $desc=trim($e["description"] ?? "");
 $prompt=$SYSTEM."\n\n".$dataBlock."\nINZERÁT:\n".$desc;
 
 
-/* ---------------------------------------------------
+/* --------------------------------------------------
    OLLAMA REQUEST
---------------------------------------------------- */
+-------------------------------------------------- */
 
 $payload=[
 "model"=>$MODEL,
@@ -260,7 +160,7 @@ $payload=[
 "stream"=>false,
 "options"=>[
 "temperature"=>0.1,
-"num_predict"=>600
+"num_predict"=>500
 ]
 ];
 
@@ -288,9 +188,9 @@ if(!$response){
 }
 
 
-/* ---------------------------------------------------
+/* --------------------------------------------------
    PARSE RESPONSE
---------------------------------------------------- */
+-------------------------------------------------- */
 
 $data=json_decode($response,true);
 
@@ -301,12 +201,8 @@ if(!isset($data["response"])){
 
 $text=trim($data["response"]);
 
-/* odstran code fences */
-
 $text=preg_replace('/```.*?\n/','',$text);
 $text=str_replace("```","",$text);
-
-/* najdi JSON */
 
 if(preg_match('/\{.*\}/s',$text,$m)){
     $jsonText=$m[0];
@@ -325,43 +221,57 @@ if(!$json){
 }
 
 
-/* ---------------------------------------------------
-   OPRAVA AI SCORE (hlavní fix)
---------------------------------------------------- */
+/* --------------------------------------------------
+   SCORE
+-------------------------------------------------- */
 
 $break=$json["breakdown"] ?? [];
 
-$aiScore =
-(int)($break["lokalita"] ?? 0) +
-(int)($break["komfort"] ?? 0) +
-(int)($break["dispozice"] ?? 0) +
-(int)($break["riziko"] ?? 0) +
-(int)($break["hodnota"] ?? 0);
+$lok=(int)($break["lokalita"] ?? 0);
+$kom=(int)($break["komfort"] ?? 0);
+$dis=(int)($break["dispozice"] ?? 0);
+$riz=(int)($break["riziko"] ?? 0);
+$hod=(int)($break["hodnota"] ?? 0);
 
-/* fallback */
-
-if($aiScore===0 && isset($json["ai_score"])){
-    $aiScore=(int)$json["ai_score"];
-}
+$aiScore = $lok+$kom+$dis+$riz+$hod;
 
 if($aiScore>100) $aiScore=100;
 
 
-/* ---------------------------------------------------
-   DB INSERT
---------------------------------------------------- */
+/* --------------------------------------------------
+   VERDICT (DETERMINISTICKÝ)
+-------------------------------------------------- */
+
+if ($aiScore < 30){
+    $verdict="IGNORE";
+}
+elseif ($aiScore < 60){
+    $verdict="CONSIDER";
+}
+elseif ($aiScore < 80){
+    $verdict="GOOD";
+}
+else{
+    $verdict="EXCEPTIONAL";
+}
+
+
+/* --------------------------------------------------
+   INSERT
+-------------------------------------------------- */
 
 $stmt=$pdo->prepare("
 INSERT INTO estate_ai_reviews
 (hash_id,ai_score,verdict,strengths,weaknesses,summary,breakdown)
 VALUES
 (:hash_id,:ai_score,:verdict,:strengths,:weaknesses,:summary,:breakdown)
+ON CONFLICT (hash_id) DO NOTHING
 ");
 
 $stmt->execute([
 ":hash_id"=>$hash,
 ":ai_score"=>$aiScore,
-":verdict"=>$json["verdict"] ?? null,
+":verdict"=>$verdict,
 ":strengths"=>$json["strengths"] ?? null,
 ":weaknesses"=>$json["weaknesses"] ?? null,
 ":summary"=>$json["summary"] ?? null,
@@ -369,22 +279,14 @@ $stmt->execute([
 ]);
 
 
-/* ---------------------------------------------------
+/* --------------------------------------------------
    LOG
---------------------------------------------------- */
+-------------------------------------------------- */
 
-echo "#$i hash $hash INSERT score=$aiScore verdict=".$json["verdict"]." ($time s)\n";
-
-echo " breakdown: ".json_encode($break)."\n";
-echo " + ".$json["strengths"]."\n";
-echo " - ".$json["weaknesses"]."\n\n";
+echo "#$i hash $hash INSERT score=$aiScore verdict=$verdict ($time s)\n";
 
 }
 
-
-/* ---------------------------------------------------
-   STATISTIKA
---------------------------------------------------- */
 
 $total=round(microtime(true)-$totalStart,2);
 

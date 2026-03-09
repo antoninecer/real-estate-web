@@ -106,6 +106,8 @@ $rows=$stmt->fetchAll();
 
 <div class="wrap">
 
+<?php require_once __DIR__.'/inc/menu.php'; ?>
+
 <h2>TOP byty podle kombinovaného skóre</h2>
 
 <table>
