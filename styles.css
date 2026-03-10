@@ -148,3 +148,32 @@ th a:hover{
     text-decoration: none;
     white-space: nowrap;
 }
+
+.bubble-wrap {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+}
+
+.bubble {
+    display: none;
+    position: absolute;
+    z-index: 9999;
+    right: 0;
+    top: 24px;
+    width: 420px;
+    max-width: 70vw;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    box-shadow: 0 8px 25px rgba(0,0,0,.15);
+    padding: 12px;
+    color: #222;
+    font-size: 13px;
+    line-height: 1.45;
+    white-space: normal;
+}
+
+.bubble-wrap:hover .bubble {
+    display: block;
+}
