@@ -467,9 +467,17 @@ function aiVerdictBadge(?string $verdict): string {
                         </div>
 
                         <?php if (!empty($row['description'])): ?>
-                            <div class="desc-preview" style="margin-top:6px;">
-                                <?=h(shortText($row['description'], 120))?>
-                            </div>
+                        <?php $descId = 'desc_' . $row['profile_id'] . '_' . $row['hash_id']; ?>
+                        <div class="desc-preview" style="margin-top:6px;">
+                            <?=h(shortText($row['description'], 160))?>
+                            <?php if (mb_strlen(trim((string)$row['description'])) > 160): ?>
+                            <a href="#" class="toggle-desc-link" data-target="<?=$descId?>">více</a>
+                            <?php endif; ?>
+                        </div>
+
+                        <div id="<?=$descId?>" class="desc-full" style="display:none; margin-top:8px;">
+                            <?=nl2br(h($row['description']))?>
+                        </div>
                         <?php endif; ?>
                     </td>
 
