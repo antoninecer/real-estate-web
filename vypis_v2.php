@@ -561,5 +561,20 @@ function aiVerdictBadge(?string $verdict): string {
         </tbody>
     </table>
 </div>
+<script>
+document.querySelectorAll('.toggle-desc-link').forEach(function(link) {
+    link.addEventListener('click', function(e) {
+        e.preventDefault();
+
+        const targetId = this.getAttribute('data-target');
+        const box = document.getElementById(targetId);
+        if (!box) return;
+
+        const isHidden = box.style.display === 'none' || box.style.display === '';
+        box.style.display = isHidden ? 'block' : 'none';
+        this.textContent = isHidden ? 'méně' : 'více';
+    });
+});
+</script>
 </body>
 </html>
