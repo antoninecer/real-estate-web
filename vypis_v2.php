@@ -540,21 +540,15 @@ function aiVerdictBadge(?string $verdict): string {
                     <td class="center">
                         <div><?=aiVerdictBadge($row['ai_verdict'] ?? '')?></div>
 
-                        <?php if (!empty($row['ai_reasoning'])): ?>
-                            <div class="bubble-wrap" style="margin-top:6px;">
-                                <span class="badge badge-info">popis</span>
-                                <div class="bubble">
-                                    <div style="font-weight:bold; margin-bottom:8px;">AI popis</div>
-                                    <div><?=nl2br(h($row['ai_reasoning']))?></div>
-
-                                    <?php if (!empty($row['ai_context'])): ?>
-                                        <hr style="margin:10px 0; border:none; border-top:1px solid #eee;">
-                                        <div style="font-weight:bold; margin-bottom:6px;">AI kontext profilu</div>
-                                        <div><?=nl2br(h($row['ai_context']))?></div>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        <?php endif; ?>
+                    <?php if (!empty($row['ai_reasoning'])): ?>
+                        <button
+                            type="button"
+                            class="badge badge-info ai-pop-btn"
+                            data-title="<?=h($row['name'])?>"
+                            data-reasoning="<?=h($row['ai_reasoning'])?>"
+                            data-context="<?=h($row['ai_context'] ?? '')?>"
+                            >popis</button>
+                    <?php endif; ?>
                     </td>
 
                     <td class="center">
@@ -584,5 +578,24 @@ document.querySelectorAll('.toggle-desc-link').forEach(function(link) {
     });
 });
 </script>
+<div id="aiPopupOverlay" class="ai-popup-overlay" style="display:none;">
+    <div class="ai-popup-box">
+        <div class="ai-popup-head">
+            <div id="aiPopupTitle" class="ai-popup-title"></div>
+            <button type="button" id="aiPopupClose" class="ai-popup-close">×</button>
+        </div>
+
+        <div class="ai-popup-body">
+            <div style="font-weight:bold; margin-bottom:6px;">AI popis</div>
+            <div id="aiPopupReasoning"></div>
+
+            <div id="aiPopupContextWrap" style="display:none; margin-top:14px;">
+                <hr style="margin:10px 0; border:none; border-top:1px solid #eee;">
+                <div style="font-weight:bold; margin-bottom:6px;">AI kontext profilu</div>
+                <div id="aiPopupContext"></div>
+            </div>
+        </div>
+    </div>
+</div>
 </body>
 </html>
