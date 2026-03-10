@@ -170,12 +170,20 @@ $stmt = $pdo->prepare($countSql);
 $stmt->execute($params);
 $total = (int)$stmt->fetchColumn();
 
-$wards = $pdo->query("
+$wardStmt = $pdo->prepare("
     SELECT DISTINCT ward
     FROM v_profile_match_scores_v2
-    WHERE ward IS NOT NULL
+    WHERE profile_id = :profile_id
+      AND ward IS NOT NULL
+      AND ward <> ''
     ORDER BY ward
-")->fetchAll(PDO::FETCH_COLUMN);
+");
+$wardStmt->execute([':profile_id' => $profileId]);
+$wards = $wardStmt->fetchAll(PDO::FETCH_COLUMN);
+
+if ($ward !== '' && !in_array($ward, $wards, true)) {
+    $ward = '';
+}
 
 /* 5. POMOCNÉ */
 function sortLink(string $key, string $currentSort, string $currentDir, int $profileId): array {
