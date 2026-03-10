@@ -122,3 +122,29 @@ th a:hover{
     th,td{padding:8px 9px;}
     .tags{min-width:200px;}
 }
+
+.desc-preview {
+    color: #666;
+    font-size: 12px;
+    max-width: 420px;
+    line-height: 1.4;
+}
+
+.desc-full {
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 10px;
+    color: #333;
+    font-size: 13px;
+    line-height: 1.5;
+    max-width: 520px;
+    white-space: normal;
+}
+
+.toggle-desc-link {
+    margin-left: 8px;
+    font-size: 12px;
+    text-decoration: none;
+    white-space: nowrap;
+}
