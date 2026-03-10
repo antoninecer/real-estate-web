@@ -232,14 +232,14 @@ try {
         $name = trim((string)($task['name'] ?? ''));
         $desc = trim((string)($task['description'] ?? ''));
         $detailUrl = trim((string)($task['detail_url'] ?? ''));
+        $profileId = (int)$task['profile_id'];
+        $hashId = (int)$task['hash_id'];
 
         if ($name === '' && $desc === '') {
             logLine("SKIP profile_id={$profileId} hash_id={$hashId}: empty name and description");
             continue;
         }
-        $profileId = (int)$task['profile_id'];
-        $hashId = (int)$task['hash_id'];
-
+        
         try {
             $dataBlock = <<<TXT
 Profil: {$task['profile_name']}

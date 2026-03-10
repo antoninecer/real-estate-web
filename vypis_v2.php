@@ -597,5 +597,58 @@ document.querySelectorAll('.toggle-desc-link').forEach(function(link) {
         </div>
     </div>
 </div>
+<script>
+(function () {
+    const overlay = document.getElementById('aiPopupOverlay');
+    const closeBtn = document.getElementById('aiPopupClose');
+    const titleEl = document.getElementById('aiPopupTitle');
+    const reasoningEl = document.getElementById('aiPopupReasoning');
+    const contextWrap = document.getElementById('aiPopupContextWrap');
+    const contextEl = document.getElementById('aiPopupContext');
+
+    function openPopup(title, reasoning, context) {
+        titleEl.textContent = title || 'AI popis';
+        reasoningEl.textContent = reasoning || '';
+
+        if (context && context.trim() !== '') {
+            contextEl.textContent = context;
+            contextWrap.style.display = 'block';
+        } else {
+            contextEl.textContent = '';
+            contextWrap.style.display = 'none';
+        }
+
+        overlay.style.display = 'flex';
+    }
+
+    function closePopup() {
+        overlay.style.display = 'none';
+    }
+
+    document.querySelectorAll('.ai-pop-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            openPopup(
+                this.dataset.title || '',
+                this.dataset.reasoning || '',
+                this.dataset.context || ''
+            );
+        });
+    });
+
+    closeBtn.addEventListener('click', closePopup);
+
+    overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) {
+            closePopup();
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay.style.display !== 'none') {
+            closePopup();
+        }
+    });
+})();
+</script>
 </body>
 </html>
