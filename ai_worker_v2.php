@@ -11,7 +11,7 @@ $MODEL = "qwen3:4b-instruct";
 $OLLAMA = "http://macmini:1234/api/generate";
 $LOCK_NAME = "rei_ai_worker_v2";
 $LOCK_TTL_MINUTES = 15;
-$BATCH_LIMIT = 50;
+$BATCH_LIMIT = 200;
 $PROMPT_VERSION = "v2-profile-context-1";
 
 $WORKER_ID = gethostname() . ":" . getmypid() . ":" . bin2hex(random_bytes(4));
@@ -154,7 +154,7 @@ function parseModelJson(string $text): array
     } else {
         $jsonText = $text;
     }
-
+    $jsonText = preg_replace('/^\s*-\s*/m', '', $jsonText);
     $json = json_decode($jsonText, true);
     if (!is_array($json)) {
         throw new RuntimeException("JSON parse failed: " . mb_substr($text, 0, 300));
@@ -229,6 +229,14 @@ try {
     $processed = 0;
 
     foreach ($tasks as $task) {
+        $name = trim((string)($task['name'] ?? ''));
+        $desc = trim((string)($task['description'] ?? ''));
+        $detailUrl = trim((string)($task['detail_url'] ?? ''));
+
+        if ($name === '' && $desc === '') {
+            logLine("SKIP profile_id={$profileId} hash_id={$hashId}: empty name and description");
+            continue;
+        }
         $profileId = (int)$task['profile_id'];
         $hashId = (int)$task['hash_id'];
 
