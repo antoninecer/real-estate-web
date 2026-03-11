@@ -4,29 +4,39 @@ require_once __DIR__.'/inc/connect.php';
 require_once __DIR__.'/inc/helpers.php';
 
 /* MAPY */
-$roomMap=[
-2=>'1+kk', 3=>'1+1', 4=>'2+kk', 5=>'2+1', 6=>'3+kk', 7=>'3+1', 8=>'4+kk', 9=>'4+1', 10=>'5+kk', 11=>'5+1', 12=>'6+', 16=>'Atypický'
+$roomMap = [
+    2 => '1+kk', 3 => '1+1', 4 => '2+kk', 5 => '2+1', 6 => '3+kk', 7 => '3+1',
+    8 => '4+kk', 9 => '4+1', 10 => '5+kk', 11 => '5+1', 12 => '6+', 16 => 'Atypický'
 ];
 
-$conditionMap=[
-1=>'Velmi dobrý', 2=>'Dobrý', 8=>'Před rekonstrukcí', 9=>'Po rekonstrukci', 4=>'Novostavba'
+$conditionMap = [
+    1 => 'Velmi dobrý', 2 => 'Dobrý', 8 => 'Před rekonstrukcí', 9 => 'Po rekonstrukci', 4 => 'Novostavba'
 ];
+
+/* SCORING PROFILY */
+$scoringProfiles = $pdo->query("
+    SELECT id, name
+    FROM estate_scoring_profiles
+    ORDER BY id
+")->fetchAll(PDO::FETCH_ASSOC);
 
 /* SPUSTIT SCAN */
-if(isset($_GET['run_scan'])){
-    $url="https://n8n.rightdone.eu/webhook/srealityscan";
-    $ch=curl_init($url);
-    curl_setopt($ch,CURLOPT_RETURNTRANSFER,true);
-    curl_setopt($ch,CURLOPT_TIMEOUT,2);
+if (isset($_GET['run_scan'])) {
+    $url = "https://n8n.rightdone.eu/webhook/srealityscan";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 2);
     curl_exec($ch);
     curl_close($ch);
+
     header("Location: profilesv2.php?scan=1");
     exit;
 }
 
 /* ULOZENI PROFILU */
-if($_SERVER['REQUEST_METHOD']==='POST'){
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = $_POST['id'] ?: null;
+
     $name = trim($_POST['name'] ?? '') ?: 'Nový profil';
     $ai_context = trim($_POST['ai_context'] ?? '');
     $is_active = !empty($_POST['is_active']) ? 'true' : 'false';
@@ -39,17 +49,21 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     $building_condition = implode(',', $conditions);
 
     $balcony = !empty($_POST['balcony']) ? 'true' : 'false';
-    $cellar  = !empty($_POST['cellar']) ? 'true' : 'false';
+    $cellar = !empty($_POST['cellar']) ? 'true' : 'false';
+
     $floor_from = $_POST['floor_number_from'] !== '' ? (int)$_POST['floor_number_from'] : null;
-    $floor_to   = $_POST['floor_number_to'] !== '' ? (int)$_POST['floor_number_to'] : null;
-    $price_to = $_POST['price_to'] !== '' ? (int)str_replace(' ','',$_POST['price_to']) : null;
+    $floor_to = $_POST['floor_number_to'] !== '' ? (int)$_POST['floor_number_to'] : null;
+    $price_to = $_POST['price_to'] !== '' ? (int)str_replace(' ', '', $_POST['price_to']) : null;
     $locality_region_id = $_POST['locality_region_id'] !== '' ? (int)$_POST['locality_region_id'] : null;
     $usable_area_from = $_POST['usable_area_from'] !== '' ? (int)$_POST['usable_area_from'] : null;
     $limit_items = $_POST['limit_items'] !== '' ? (int)$_POST['limit_items'] : 50;
     $ownership = $_POST['ownership'] !== '' ? (int)$_POST['ownership'] : null;
 
-    if($id){
-        $stmt=$pdo->prepare("
+    $scoringProfileId = $_POST['scoring_profile_id'] !== '' ? (int)$_POST['scoring_profile_id'] : null;
+    $scoreTemplateProfileId = $_POST['score_template_profile_id'] !== '' ? (int)$_POST['score_template_profile_id'] : null;
+
+    if ($id) {
+        $stmt = $pdo->prepare("
             UPDATE estate_search_profiles SET
                 name = :name,
                 ai_context = :ai_context,
@@ -66,64 +80,130 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
                 cellar = :cellar,
                 usable_area_from = :usable_area_from,
                 limit_items = :limit_items,
+                scoring_profile_id = :scoring_profile_id,
                 updated_at = now()
             WHERE id = :id
         ");
-        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
-    } else {
-        $stmt=$pdo->prepare("
-            INSERT INTO estate_search_profiles (
-                name,
-                ai_context,
-                is_active,
-                category_type_cb,
-                category_sub_cb,
-                locality_region_id,
-                price_to,
-                ownership,
-                floor_number_from,
-                floor_number_to,
-                building_condition,
-                balcony,
-                cellar,
-                usable_area_from,
-                limit_items
-            ) VALUES (
-                :name,
-                :ai_context,
-                :is_active,
-                :category_type_cb,
-                :category_sub_cb,
-                :locality_region_id,
-                :price_to,
-                :ownership,
-                :floor_number_from,
-                :floor_number_to,
-                :building_condition,
-                :balcony,
-                :cellar,
-                :usable_area_from,
-                :limit_items
-            )
-        ");
-    }
 
-    $stmt->bindValue(':name', $name);
-    $stmt->bindValue(':ai_context', $ai_context !== '' ? $ai_context : null, $ai_context !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
-    $stmt->bindValue(':is_active', $is_active, PDO::PARAM_STR);
-    $stmt->bindValue(':category_type_cb', $category_type_cb, PDO::PARAM_INT);
-    $stmt->bindValue(':category_sub_cb', $category_sub_cb !== '' ? $category_sub_cb : null, $category_sub_cb !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
-    $stmt->bindValue(':locality_region_id', $locality_region_id, $locality_region_id !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
-    $stmt->bindValue(':price_to', $price_to, $price_to !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
-    $stmt->bindValue(':ownership', $ownership, $ownership !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
-    $stmt->bindValue(':floor_number_from', $floor_from, $floor_from !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
-    $stmt->bindValue(':floor_number_to', $floor_to, $floor_to !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
-    $stmt->bindValue(':building_condition', $building_condition !== '' ? $building_condition : null, $building_condition !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
-    $stmt->bindValue(':balcony', $balcony, PDO::PARAM_STR);
-    $stmt->bindValue(':cellar', $cellar, PDO::PARAM_STR);
-    $stmt->bindValue(':usable_area_from', $usable_area_from, $usable_area_from !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
-    $stmt->bindValue(':limit_items', $limit_items, PDO::PARAM_INT);
-    $stmt->execute();
+        $stmt->bindValue(':id', (int)$id, PDO::PARAM_INT);
+        $stmt->bindValue(':name', $name);
+        $stmt->bindValue(':ai_context', $ai_context !== '' ? $ai_context : null, $ai_context !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+        $stmt->bindValue(':is_active', $is_active, PDO::PARAM_STR);
+        $stmt->bindValue(':category_type_cb', $category_type_cb, PDO::PARAM_INT);
+        $stmt->bindValue(':category_sub_cb', $category_sub_cb !== '' ? $category_sub_cb : null, $category_sub_cb !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+        $stmt->bindValue(':locality_region_id', $locality_region_id, $locality_region_id !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+        $stmt->bindValue(':price_to', $price_to, $price_to !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+        $stmt->bindValue(':ownership', $ownership, $ownership !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+        $stmt->bindValue(':floor_number_from', $floor_from, $floor_from !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+        $stmt->bindValue(':floor_number_to', $floor_to, $floor_to !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+        $stmt->bindValue(':building_condition', $building_condition !== '' ? $building_condition : null, $building_condition !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+        $stmt->bindValue(':balcony', $balcony, PDO::PARAM_STR);
+        $stmt->bindValue(':cellar', $cellar, PDO::PARAM_STR);
+        $stmt->bindValue(':usable_area_from', $usable_area_from, $usable_area_from !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+        $stmt->bindValue(':limit_items', $limit_items, PDO::PARAM_INT);
+        $stmt->bindValue(':scoring_profile_id', $scoringProfileId, $scoringProfileId !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+        $stmt->execute();
+    } else {
+        $pdo->beginTransaction();
+
+        try {
+            $newScoringProfileName = $name . ' - scoring';
+
+            $stmt = $pdo->prepare("
+                INSERT INTO estate_scoring_profiles (name)
+                VALUES (:name)
+                RETURNING id
+            ");
+            $stmt->execute([
+                ':name' => $newScoringProfileName
+            ]);
+
+            $newScoringProfileId = (int)$stmt->fetchColumn();
+
+            if ($scoreTemplateProfileId) {
+                $stmt = $pdo->prepare("
+                    INSERT INTO estate_scoring_rules
+                    (scoring_profile_id, rule_group, min_value, max_value, text_match, points)
+                    SELECT
+                        :new_scoring_profile_id,
+                        rule_group,
+                        min_value,
+                        max_value,
+                        text_match,
+                        points
+                    FROM estate_scoring_rules
+                    WHERE scoring_profile_id = :template_scoring_profile_id
+                ");
+                $stmt->execute([
+                    ':new_scoring_profile_id' => $newScoringProfileId,
+                    ':template_scoring_profile_id' => $scoreTemplateProfileId
+                ]);
+            }
+
+            $stmt = $pdo->prepare("
+                INSERT INTO estate_search_profiles (
+                    name,
+                    ai_context,
+                    is_active,
+                    category_type_cb,
+                    category_sub_cb,
+                    locality_region_id,
+                    price_to,
+                    ownership,
+                    floor_number_from,
+                    floor_number_to,
+                    building_condition,
+                    balcony,
+                    cellar,
+                    usable_area_from,
+                    limit_items,
+                    scoring_profile_id
+                ) VALUES (
+                    :name,
+                    :ai_context,
+                    :is_active,
+                    :category_type_cb,
+                    :category_sub_cb,
+                    :locality_region_id,
+                    :price_to,
+                    :ownership,
+                    :floor_number_from,
+                    :floor_number_to,
+                    :building_condition,
+                    :balcony,
+                    :cellar,
+                    :usable_area_from,
+                    :limit_items,
+                    :scoring_profile_id
+                )
+            ");
+
+            $stmt->bindValue(':name', $name);
+            $stmt->bindValue(':ai_context', $ai_context !== '' ? $ai_context : null, $ai_context !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+            $stmt->bindValue(':is_active', $is_active, PDO::PARAM_STR);
+            $stmt->bindValue(':category_type_cb', $category_type_cb, PDO::PARAM_INT);
+            $stmt->bindValue(':category_sub_cb', $category_sub_cb !== '' ? $category_sub_cb : null, $category_sub_cb !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+            $stmt->bindValue(':locality_region_id', $locality_region_id, $locality_region_id !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+            $stmt->bindValue(':price_to', $price_to, $price_to !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+            $stmt->bindValue(':ownership', $ownership, $ownership !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+            $stmt->bindValue(':floor_number_from', $floor_from, $floor_from !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+            $stmt->bindValue(':floor_number_to', $floor_to, $floor_to !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+            $stmt->bindValue(':building_condition', $building_condition !== '' ? $building_condition : null, $building_condition !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+            $stmt->bindValue(':balcony', $balcony, PDO::PARAM_STR);
+            $stmt->bindValue(':cellar', $cellar, PDO::PARAM_STR);
+            $stmt->bindValue(':usable_area_from', $usable_area_from, $usable_area_from !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+            $stmt->bindValue(':limit_items', $limit_items, PDO::PARAM_INT);
+            $stmt->bindValue(':scoring_profile_id', $newScoringProfileId, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
 
     header("Location: profilesv2.php?saved=1");
     exit;
@@ -133,7 +213,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
 $editMode = isset($_GET['id']) || isset($_GET['add']);
 $profile = null;
 
-if(isset($_GET['id'])){
+if (isset($_GET['id'])) {
     $stmt = $pdo->prepare("SELECT * FROM estate_search_profiles WHERE id = :id");
     $stmt->execute(['id' => $_GET['id']]);
     $profile = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -143,7 +223,12 @@ $currentRooms = ($profile && !empty($profile['category_sub_cb'])) ? explode(',',
 $currentConditions = ($profile && !empty($profile['building_condition'])) ? explode(',', $profile['building_condition']) : [];
 
 /* SEZNAM */
-$profiles = $pdo->query("SELECT * FROM estate_search_profiles ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+$profiles = $pdo->query("
+    SELECT sp.*, esp.name AS scoring_profile_name
+    FROM estate_search_profiles sp
+    LEFT JOIN estate_scoring_profiles esp ON esp.id = sp.scoring_profile_id
+    ORDER BY sp.id DESC
+")->fetchAll(PDO::FETCH_ASSOC);
 
 ?>
 <!DOCTYPE html>
@@ -180,6 +265,7 @@ $profiles = $pdo->query("SELECT * FROM estate_search_profiles ORDER BY id DESC")
                     <th>ID</th>
                     <th>Název</th>
                     <th>Typ</th>
+                    <th>Scoring</th>
                     <th>AI kontext</th>
                     <th>Aktivní</th>
                     <th>Akce</th>
@@ -191,6 +277,7 @@ $profiles = $pdo->query("SELECT * FROM estate_search_profiles ORDER BY id DESC")
                     <td><?=htmlspecialchars((string)$p['id'])?></td>
                     <td><b><?=htmlspecialchars($p['name'])?></b></td>
                     <td><?=((int)$p['category_type_cb'] === 1) ? 'Prodej' : 'Pronájem'?></td>
+                    <td><?=htmlspecialchars($p['scoring_profile_name'] ?? '')?></td>
                     <td>
                         <?php if(!empty($p['ai_context'])): ?>
                             <?=nl2br(htmlspecialchars(mb_strimwidth($p['ai_context'], 0, 120, '...')));?>
@@ -228,6 +315,38 @@ $profiles = $pdo->query("SELECT * FROM estate_search_profiles ORDER BY id DESC")
                         <label style="margin-left:15px"><input type="radio" name="category_type_cb" value="2" <?=($profile['category_type_cb'] ?? 1) == 2 ? 'checked' : ''?>> Pronájem</label>
                     </td>
                 </tr>
+
+                <?php if(isset($_GET['add'])): ?>
+                <tr>
+                    <td>Vzor scoringu</td>
+                    <td>
+                        <select name="score_template_profile_id">
+                            <option value="">-- bez kopie --</option>
+                            <?php foreach($scoringProfiles as $sp): ?>
+                                <option value="<?=$sp['id']?>">
+                                    <?=htmlspecialchars($sp['name'])?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="muted">Vytvoří se nový scoring profil a pravidla se zkopírují ze zvoleného vzoru.</div>
+                    </td>
+                </tr>
+                <?php else: ?>
+                <tr>
+                    <td>Scoring profil</td>
+                    <td>
+                        <select name="scoring_profile_id">
+                            <option value="">-- žádný --</option>
+                            <?php foreach($scoringProfiles as $sp): ?>
+                                <option value="<?=$sp['id']?>" <?=((int)($profile['scoring_profile_id'] ?? 0) === (int)$sp['id']) ? 'selected' : ''?>>
+                                    <?=htmlspecialchars($sp['name'])?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </td>
+                </tr>
+                <?php endif; ?>
+
                 <tr>
                     <td>AI kontext<br><span class="muted">Volitelný text pro AI. Např. „Jsme 3 a máme psa. Pokud jsou zakázaní domácí mazlíčci, je to blocker.“</span></td>
                     <td>
