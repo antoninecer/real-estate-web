@@ -22,7 +22,7 @@ $scoringProfiles = $pdo->query("
 
 /* SPUSTIT SCAN */
 if (isset($_GET['run_scan'])) {
-    $url = "https://n8n.rightdone.eu/webhook/srealityscan";
+    $url = "https://n8n.rightdone.eu/webhook/scrapper";
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 2);

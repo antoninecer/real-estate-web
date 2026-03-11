@@ -178,6 +178,9 @@ SELECT
     r.strengths,
     r.weaknesses,
     r.verdict AS review_verdict,
+    r.breakdown,
+    r.model,
+    r.created_at AS review_created_at,
 
     p.profile_id,
     p.profile_name,
@@ -185,7 +188,9 @@ SELECT
     p.final_score AS profile_final_score,
     p.ai_verdict,
     p.ai_reasoning,
+    p.ai_context,
     p.first_seen_at,
+    p.ai_created_at,
 
     {$finalExpr} AS final_score
 
@@ -258,6 +263,51 @@ function aiScoreForView(array $row) {
         return (int)$row['review_ai_score'];
     }
     return null;
+}
+
+function aiPopupText(array $row): string {
+    $parts = [];
+
+    $verdict = verdictText($row);
+    if ($verdict !== '') {
+        $parts[] = "Verdict:\n" . $verdict;
+    }
+
+    if (!empty($row['summary'])) {
+        $parts[] = "Summary:\n" . trim((string)$row['summary']);
+    }
+
+    if (!empty($row['strengths'])) {
+        $parts[] = "Strengths:\n" . trim((string)$row['strengths']);
+    }
+
+    if (!empty($row['weaknesses'])) {
+        $parts[] = "Weaknesses:\n" . trim((string)$row['weaknesses']);
+    }
+
+    if (!empty($row['ai_reasoning'])) {
+        $parts[] = "Profile AI reasoning:\n" . trim((string)$row['ai_reasoning']);
+    }
+
+    if (!empty($row['ai_context'])) {
+        $parts[] = "Profile AI context:\n" . trim((string)$row['ai_context']);
+    }
+
+    if (!empty($row['model'])) {
+        $parts[] = "Model:\n" . trim((string)$row['model']);
+    }
+
+    if (!empty($row['breakdown'])) {
+        $breakdown = is_string($row['breakdown'])
+            ? $row['breakdown']
+            : json_encode($row['breakdown'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if ($breakdown) {
+            $parts[] = "Breakdown:\n" . $breakdown;
+        }
+    }
+
+    return implode("\n\n", $parts);
 }
 ?>
 <!DOCTYPE html>
@@ -381,6 +431,8 @@ function aiScoreForView(array $row) {
             if ($summary === '') {
                 $summary = trim((string)($r['ai_reasoning'] ?? ''));
             }
+
+            $popupText = aiPopupText($r);
             ?>
             <tr>
                 <td>
@@ -425,9 +477,15 @@ function aiScoreForView(array $row) {
                 <td>
                     <?php if ($summary !== ''): ?>
                         <?=h(shortText($summary, 180))?>
-                        <?php $v = verdictText($r); ?>
-                        <?php if ($v !== ''): ?>
-                            <div class="hint" style="margin:4px 0 0 0;"><?=h($v)?></div>
+                        <?php if ($popupText !== ''): ?>
+                            <div style="margin-top:4px;">
+                                <button
+                                    type="button"
+                                    class="ai-pop-btn"
+                                    data-title="<?=h($r['name'] ?? 'AI detail')?>"
+                                    data-body="<?=h($popupText)?>"
+                                >detail</button>
+                            </div>
                         <?php endif; ?>
                     <?php else: ?>
                         <span class="na">AI počítá…</span>
@@ -453,6 +511,58 @@ function aiScoreForView(array $row) {
 </table>
 
 </div>
+
+<div id="aiPopupOverlay" class="ai-popup-overlay" style="display:none;">
+    <div class="ai-popup-box">
+        <div class="ai-popup-head">
+            <div id="aiPopupTitle" class="ai-popup-title"></div>
+            <button type="button" id="aiPopupClose" class="ai-popup-close">×</button>
+        </div>
+        <div id="aiPopupBody" class="ai-popup-body"></div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const overlay = document.getElementById('aiPopupOverlay');
+    const closeBtn = document.getElementById('aiPopupClose');
+    const titleEl = document.getElementById('aiPopupTitle');
+    const bodyEl = document.getElementById('aiPopupBody');
+
+    function openPopup(title, body) {
+        titleEl.textContent = title || 'AI detail';
+        bodyEl.textContent = body || '';
+        overlay.style.display = 'flex';
+    }
+
+    function closePopup() {
+        overlay.style.display = 'none';
+    }
+
+    document.querySelectorAll('.ai-pop-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            openPopup(
+                this.dataset.title || '',
+                this.dataset.body || ''
+            );
+        });
+    });
+
+    closeBtn.addEventListener('click', closePopup);
+
+    overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) {
+            closePopup();
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay.style.display !== 'none') {
+            closePopup();
+        }
+    });
+})();
+</script>
 
 </body>
 </html>
