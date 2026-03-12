@@ -415,13 +415,11 @@ $sql = "
         CASE WHEN substr(v.features, 4, 1) = 'E' THEN true ELSE false END AS elevator
 
     FROM v_profile_match_scores_v2 v
-    WHERE v.state = 'active'
-      AND COALESCE(v.active, false) = true
-      AND v.ai_score IS NULL
-      AND (
-          NULLIF(trim(v.name), '') IS NOT NULL
-          OR NULLIF(trim(v.description), '') IS NOT NULL
-      )
+   WHERE v.ai_score IS NULL
+  AND (
+      NULLIF(trim(v.name), '') IS NOT NULL
+      OR NULLIF(trim(v.description), '') IS NOT NULL
+  )
     ORDER BY v.last_seen DESC NULLS LAST, v.profile_match_id DESC
     LIMIT :limit
 ";
