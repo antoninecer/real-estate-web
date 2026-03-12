@@ -453,11 +453,9 @@ try {
             continue;
         }
 
-        try {
-            $dataBlock = <<<TXT
+        try { $dataBlock = <<<TXT
 Profil: {$task['profile_name']}
 Typ nabídky: {$task['category_type_cb']}
-AI kontext profilu: {$task['ai_context']}
 
 Název: {$task['name']}
 Cena: {$task['price_czk']} Kč
