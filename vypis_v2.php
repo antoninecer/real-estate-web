@@ -62,7 +62,11 @@ $onlyNew   = !empty($_GET['only_new']);
 $onlyFresh = !empty($_GET['only_fresh']);
 $hideContacted = !empty($_GET['hide_contacted']);
 
-$where = ["v.profile_id = :profile_id"];
+
+$where = [
+    "v.profile_id = :profile_id",
+    "NULLIF(trim(COALESCE(v.name, '')), '') IS NOT NULL"
+];
 $params = [':profile_id' => $profileId];
 
 if ($minHard !== '') {
