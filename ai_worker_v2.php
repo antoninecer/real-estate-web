@@ -12,7 +12,7 @@ $OLLAMA = "http://macmini:1234/api/generate";
 $LOCK_NAME = "rei_ai_worker_v2";
 $LOCK_TTL_MINUTES = 15;
 $BATCH_LIMIT = 200;
-$PROMPT_VERSION = "v2-profile-context-1";
+$PROMPT_VERSION = "v3-global-plus-profile-1";
 
 $MAIL_ENABLED = true;
 $MAIL_MIN_SCORE = 70;
@@ -23,14 +23,14 @@ $MAIL_PROVIDER = 'rightdone-zoho';
 $WORKER_ID = gethostname() . ":" . getmypid() . ":" . bin2hex(random_bytes(4));
 
 $SYSTEM = <<<PROMPT
-Jsi analytik realitních inzerátů.
+Jsi zkušený analytik realitních inzerátů a hodnotíš vhodnost konkrétního inzerátu pro konkrétní profil zájemce.
 
-Vyhodnocuješ VHODNOST KONKRÉTNÍHO inzerátu pro KONKRÉTNÍ profil.
+Piš výhradně česky, stručně, věcně a gramaticky správně.
 
-Musíš zohlednit:
-1. strukturovaná data bytu
-2. text inzerátu
-3. AI kontext profilu
+Vyhodnocuješ vhodnost podle:
+1. strukturovaných dat inzerátu
+2. textu inzerátu
+3. profilových preferencí zájemce
 
 Vrať pouze validní JSON bez dalšího textu.
 
@@ -47,12 +47,19 @@ Vrať pouze validní JSON bez dalšího textu.
   "summary": ""
 }
 
-Pravidla:
-- každá položka breakdown je 0 až 20
-- summary má být stručné a věcné
-- strengths a weaknesses mají být stručné
-- pokud profil uvádí speciální požadavky (např. pes, děti, investice, pronájem, koupě), musíš je zohlednit
-- pokud text inzerátu naznačuje konflikt s profilem, promítni to do rizika a summary
+Povinná pravidla:
+- každá položka breakdown je celé číslo 0 až 20
+- summary musí být krátké, věcné a bez marketingových frází
+- strengths a weaknesses musí být stručné, konkrétní a založené jen na datech
+- nevymýšlej si žádná fakta, která nejsou výslovně uvedena v datech nebo textu inzerátu
+- pokud nějaká informace chybí, označ ji jako nejistotu nebo že není uvedena, ne jako jistý fakt
+- nezaměňuj fakta za dojmy
+- nezaměňuj balkon, lodžii a terasu
+- nezaměňuj parkování a garáž
+- nevyvozuj zákaz domácích mazlíčků, pokud to text výslovně neuvádí
+- pokud profil uvádí speciální požadavky, zohledni je při hodnocení
+- pokud text inzerátu naznačuje konflikt s profilem, promítni to hlavně do rizika, weaknesses a summary
+- pokud profilový kontext chybí, hodnoť pouze podle obecných parametrů inzerátu
 PROMPT;
 
 function logLine(string $msg): void
@@ -174,6 +181,17 @@ function parseModelJson(string $text): array
 function clampScore(int $value): int
 {
     return max(0, min(20, $value));
+}
+
+function buildProfileContext(?string $aiContext): string
+{
+    $ctx = trim((string)$aiContext);
+
+    if ($ctx === '') {
+        return "Bez zvláštních doplňkových preferencí. Hodnoť pouze podle obecných parametrů inzerátu.";
+    }
+
+    return $ctx;
 }
 
 function htm(?string $text): string
@@ -468,8 +486,13 @@ TXT;
                 !empty($task['loggia']) ? 'ano' : 'ne'
             );
 
-            $prompt = $SYSTEM . "\n\n" . $dataBlock . "\n\nINZERÁT:\n" . trim((string)($task['description'] ?? ''));
+            $profileContext = buildProfileContext($task['ai_context'] ?? '');
 
+            $prompt = $SYSTEM . "\n\nPROFILOVÉ PREFERENCE:\n" . $profileContext
+    . "\n\nSTRUKTUROVANÁ DATA INZERÁTU:\n"
+    . $dataBlock
+    . "\n\nTEXT INZERÁTU:\n"
+    . trim((string)($task['description'] ?? ''));
             $payload = [
                 'model' => $MODEL,
                 'prompt' => $prompt,
