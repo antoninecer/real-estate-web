@@ -387,45 +387,44 @@ try {
 
     logLine("Lock acquired by {$WORKER_ID}");
 
-    $sql = "
-        SELECT
-            pm.profile_id,
-            pm.hash_id,
-            e.name,
-            e.description,
-            e.detail_url,
-            e.price_czk,
-            e.usable_area,
-            e.floor_number,
-            e.metro_distance,
-            e.tram_distance,
-            e.bus_distance,
-            e.building_condition,
-            e.construction_type,
-            e.elevator,
-            e.parking,
-            e.garage,
-            e.cellar,
-            e.balcony,
-            e.loggia,
-            e.ward,
-            sp.name AS profile_name,
-            sp.category_type_cb,
-            sp.ai_context
-        FROM profile_matches pm
-        JOIN estates e
-          ON e.hash_id = pm.hash_id
-        JOIN estate_search_profiles sp
-          ON sp.id = pm.profile_id
-        LEFT JOIN profile_ai_reviews air
-          ON air.profile_id = pm.profile_id
-         AND air.hash_id = pm.hash_id
-        WHERE pm.state = 'active'
-          AND e.active = true
-          AND air.id IS NULL
-        ORDER BY pm.last_seen_at DESC, pm.id DESC
-        LIMIT :limit
-    ";
+$sql = "
+    SELECT
+        v.profile_id,
+        v.hash_id,
+        v.name,
+        v.description,
+        v.detail_url,
+        v.price_czk,
+        v.usable_area,
+        v.floor_number,
+        v.metro_distance,
+        v.tram_distance,
+        v.bus_distance,
+        v.building_condition,
+        v.construction_type,
+        v.ward,
+        v.profile_name,
+        v.category_type_cb,
+        v.ai_context,
+
+        CASE WHEN v.features LIKE 'G%' THEN true ELSE false END AS garage,
+        CASE WHEN v.features LIKE 'P%' THEN true ELSE false END AS parking,
+        CASE WHEN substr(v.features, 2, 1) = 'C' THEN true ELSE false END AS cellar,
+        CASE WHEN substr(v.features, 3, 1) = 'B' THEN true ELSE false END AS balcony,
+        CASE WHEN substr(v.features, 3, 1) = 'L' THEN true ELSE false END AS loggia,
+        CASE WHEN substr(v.features, 4, 1) = 'E' THEN true ELSE false END AS elevator
+
+    FROM v_profile_match_scores_v2 v
+    WHERE v.state = 'active'
+      AND COALESCE(v.active, false) = true
+      AND v.ai_score IS NULL
+      AND (
+          NULLIF(trim(v.name), '') IS NOT NULL
+          OR NULLIF(trim(v.description), '') IS NOT NULL
+      )
+    ORDER BY v.last_seen DESC NULLS LAST, v.profile_match_id DESC
+    LIMIT :limit
+";
 
     $stmt = $pdo->prepare($sql);
     $stmt->bindValue(':limit', $BATCH_LIMIT, PDO::PARAM_INT);
