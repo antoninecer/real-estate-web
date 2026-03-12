@@ -14,6 +14,12 @@ $LOCK_TTL_MINUTES = 15;
 $BATCH_LIMIT = 200;
 $PROMPT_VERSION = "v2-profile-context-1";
 
+$MAIL_ENABLED = true;
+$MAIL_MIN_SCORE = 70;
+$MAIL_TO = 'antoninecer@gmail.com';
+$MAIL_TO_NAME = 'Antonín';
+$MAIL_PROVIDER = 'rightdone-zoho';
+
 $WORKER_ID = gethostname() . ":" . getmypid() . ":" . bin2hex(random_bytes(4));
 
 $SYSTEM = <<<PROMPT
@@ -154,8 +160,10 @@ function parseModelJson(string $text): array
     } else {
         $jsonText = $text;
     }
+
     $jsonText = preg_replace('/^\s*-\s*/m', '', $jsonText);
     $json = json_decode($jsonText, true);
+
     if (!is_array($json)) {
         throw new RuntimeException("JSON parse failed: " . mb_substr($text, 0, 300));
     }
@@ -166,6 +174,191 @@ function parseModelJson(string $text): array
 function clampScore(int $value): int
 {
     return max(0, min(20, $value));
+}
+
+function htm(?string $text): string
+{
+    return htmlspecialchars((string)$text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function scoreVerdict(int $aiScore): string
+{
+    if ($aiScore < 30) {
+        return 'IGNORE';
+    }
+    if ($aiScore < 60) {
+        return 'CONSIDER';
+    }
+    if ($aiScore < 80) {
+        return 'GOOD';
+    }
+    return 'EXCEPTIONAL';
+}
+
+function notificationAlreadySent(PDO $pdo, int $profileId, int $hashId, string $emailTo): bool
+{
+    $stmt = $pdo->prepare("
+        SELECT 1
+        FROM profile_email_notifications
+        WHERE profile_id = :profile_id
+          AND hash_id = :hash_id
+          AND email_to = :email_to
+        LIMIT 1
+    ");
+
+    $stmt->execute([
+        ':profile_id' => $profileId,
+        ':hash_id' => $hashId,
+        ':email_to' => $emailTo,
+    ]);
+
+    return (bool)$stmt->fetchColumn();
+}
+
+function insertNotificationLog(
+    PDO $pdo,
+    int $profileId,
+    int $hashId,
+    string $emailTo,
+    int $aiScore,
+    string $provider,
+    ?string $providerMessageId = null
+): void {
+    $stmt = $pdo->prepare("
+        INSERT INTO profile_email_notifications (
+            profile_id,
+            hash_id,
+            email_to,
+            ai_score,
+            sent_at,
+            provider,
+            provider_message_id
+        ) VALUES (
+            :profile_id,
+            :hash_id,
+            :email_to,
+            :ai_score,
+            now(),
+            :provider,
+            :provider_message_id
+        )
+        ON CONFLICT (profile_id, hash_id, email_to) DO NOTHING
+    ");
+
+    $stmt->execute([
+        ':profile_id' => $profileId,
+        ':hash_id' => $hashId,
+        ':email_to' => $emailTo,
+        ':ai_score' => $aiScore,
+        ':provider' => $provider,
+        ':provider_message_id' => $providerMessageId,
+    ]);
+}
+
+function sendInterestingEstateEmail(
+    array $task,
+    int $aiScore,
+    string $verdict,
+    array $breakdownSafe,
+    string $summary,
+    ?string $strengths,
+    ?string $weaknesses
+): bool {
+    global $MAIL_TO, $MAIL_TO_NAME;
+
+    $name = trim((string)($task['name'] ?? ''));
+    $profileName = trim((string)($task['profile_name'] ?? ''));
+    $ward = trim((string)($task['ward'] ?? ''));
+    $price = $task['price_czk'] !== null ? number_format((float)$task['price_czk'], 0, ',', ' ') . ' Kč' : '-';
+    $area = $task['usable_area'] !== null ? ((string)$task['usable_area'] . ' m²') : '-';
+    $floor = $task['floor_number'] !== null && $task['floor_number'] !== '' ? (string)$task['floor_number'] : '-';
+    $metro = $task['metro_distance'] !== null && $task['metro_distance'] !== '' ? ((string)$task['metro_distance'] . ' m') : '-';
+    $detailUrl = trim((string)($task['detail_url'] ?? ''));
+    $description = trim((string)($task['description'] ?? ''));
+    $shortDesc = mb_substr($description, 0, 1200);
+    if (mb_strlen($description) > 1200) {
+        $shortDesc .= "…";
+    }
+
+    $subject = "[REI] {$verdict} {$aiScore}/100 – {$name}";
+    if ($profileName !== '') {
+        $subject .= " ({$profileName})";
+    }
+
+    $htmlBody = '
+        <html><body style="font-family:Arial,sans-serif;color:#111;line-height:1.5;">
+            <h2 style="margin:0 0 12px 0;">Zajímavý inzerát pro profil ' . htm($profileName) . '</h2>
+
+            <p style="margin:0 0 12px 0;">
+                <strong>' . htm($name) . '</strong>
+            </p>
+
+            <table cellpadding="6" cellspacing="0" border="0" style="border-collapse:collapse;">
+                <tr><td><strong>AI score</strong></td><td>' . htm((string)$aiScore) . ' / 100</td></tr>
+                <tr><td><strong>Verdict</strong></td><td>' . htm($verdict) . '</td></tr>
+                <tr><td><strong>Lokalita</strong></td><td>' . htm($ward) . '</td></tr>
+                <tr><td><strong>Cena</strong></td><td>' . htm($price) . '</td></tr>
+                <tr><td><strong>Plocha</strong></td><td>' . htm($area) . '</td></tr>
+                <tr><td><strong>Patro</strong></td><td>' . htm($floor) . '</td></tr>
+                <tr><td><strong>Metro</strong></td><td>' . htm($metro) . '</td></tr>
+            </table>
+
+            <h3 style="margin:18px 0 8px 0;">Shrnutí</h3>
+            <p>' . nl2br(htm($summary !== '' ? $summary : '-')) . '</p>
+
+            <h3 style="margin:18px 0 8px 0;">Silné stránky</h3>
+            <p>' . nl2br(htm($strengths ?: '-')) . '</p>
+
+            <h3 style="margin:18px 0 8px 0;">Slabé stránky</h3>
+            <p>' . nl2br(htm($weaknesses ?: '-')) . '</p>
+
+            <h3 style="margin:18px 0 8px 0;">Breakdown</h3>
+            <ul>
+                <li>Lokalita: ' . htm((string)$breakdownSafe['lokalita']) . '/20</li>
+                <li>Komfort: ' . htm((string)$breakdownSafe['komfort']) . '/20</li>
+                <li>Dispozice: ' . htm((string)$breakdownSafe['dispozice']) . '/20</li>
+                <li>Riziko: ' . htm((string)$breakdownSafe['riziko']) . '/20</li>
+                <li>Hodnota: ' . htm((string)$breakdownSafe['hodnota']) . '/20</li>
+            </ul>
+
+            <h3 style="margin:18px 0 8px 0;">Popis inzerátu</h3>
+            <p>' . nl2br(htm($shortDesc !== '' ? $shortDesc : '-')) . '</p>';
+
+    if ($detailUrl !== '') {
+        $htmlBody .= '
+            <p style="margin-top:20px;">
+                <a href="' . htm($detailUrl) . '" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">
+                    Otevřít detail inzerátu
+                </a>
+            </p>
+            <p>' . htm($detailUrl) . '</p>';
+    }
+
+    $htmlBody .= '</body></html>';
+
+    $plainBody =
+        "Zajímavý inzerát pro profil {$profileName}\n\n" .
+        "Název: {$name}\n" .
+        "AI score: {$aiScore}/100\n" .
+        "Verdict: {$verdict}\n" .
+        "Lokalita: {$ward}\n" .
+        "Cena: {$price}\n" .
+        "Plocha: {$area}\n" .
+        "Patro: {$floor}\n" .
+        "Metro: {$metro}\n\n" .
+        "Shrnutí:\n" . ($summary !== '' ? $summary : '-') . "\n\n" .
+        "Silné stránky:\n" . ($strengths ?: '-') . "\n\n" .
+        "Slabé stránky:\n" . ($weaknesses ?: '-') . "\n\n" .
+        "Breakdown:\n" .
+        "- Lokalita: {$breakdownSafe['lokalita']}/20\n" .
+        "- Komfort: {$breakdownSafe['komfort']}/20\n" .
+        "- Dispozice: {$breakdownSafe['dispozice']}/20\n" .
+        "- Riziko: {$breakdownSafe['riziko']}/20\n" .
+        "- Hodnota: {$breakdownSafe['hodnota']}/20\n\n" .
+        ($detailUrl !== '' ? "Detail: {$detailUrl}\n\n" : '') .
+        "Popis:\n" . ($shortDesc !== '' ? $shortDesc : '-') . "\n";
+
+    return sendEmail($MAIL_TO, $MAIL_TO_NAME, $subject, $htmlBody, $plainBody);
 }
 
 try {
@@ -182,6 +375,7 @@ try {
             pm.hash_id,
             e.name,
             e.description,
+            e.detail_url,
             e.price_czk,
             e.usable_area,
             e.floor_number,
@@ -196,6 +390,7 @@ try {
             e.cellar,
             e.balcony,
             e.loggia,
+            e.ward,
             sp.name AS profile_name,
             sp.category_type_cb,
             sp.ai_context
@@ -208,6 +403,7 @@ try {
           ON air.profile_id = pm.profile_id
          AND air.hash_id = pm.hash_id
         WHERE pm.state = 'active'
+          AND e.active = true
           AND air.id IS NULL
         ORDER BY pm.last_seen_at DESC, pm.id DESC
         LIMIT :limit
@@ -231,7 +427,6 @@ try {
     foreach ($tasks as $task) {
         $name = trim((string)($task['name'] ?? ''));
         $desc = trim((string)($task['description'] ?? ''));
-        $detailUrl = trim((string)($task['detail_url'] ?? ''));
         $profileId = (int)$task['profile_id'];
         $hashId = (int)$task['hash_id'];
 
@@ -239,7 +434,7 @@ try {
             logLine("SKIP profile_id={$profileId} hash_id={$hashId}: empty name and description");
             continue;
         }
-        
+
         try {
             $dataBlock = <<<TXT
 Profil: {$task['profile_name']}
@@ -299,16 +494,12 @@ TXT;
 
             $aiScore = $lok + $kom + $dis + $riz + $hod;
             $aiScore = max(0, min(100, $aiScore));
+            $verdict = scoreVerdict($aiScore);
 
-            if ($aiScore < 30) {
-                $verdict = 'IGNORE';
-            } elseif ($aiScore < 60) {
-                $verdict = 'CONSIDER';
-            } elseif ($aiScore < 80) {
-                $verdict = 'GOOD';
-            } else {
-                $verdict = 'EXCEPTIONAL';
-            }
+            $summary = !empty($json['summary']) ? trim((string)$json['summary']) : '';
+            $strengths = !empty($json['strengths']) ? trim((string)$json['strengths']) : null;
+            $weaknesses = !empty($json['weaknesses']) ? trim((string)$json['weaknesses']) : null;
+            $reasoning = $summary !== '' ? $summary : null;
 
             $upsert = $pdo->prepare("
                 INSERT INTO profile_ai_reviews (
@@ -353,32 +544,65 @@ TXT;
                     updated_at = now()
             ");
 
-            $reasoning = trim(
-                (string)($json['summary'] ?? '')
-            );
+            $breakdownSafe = [
+                'lokalita' => $lok,
+                'komfort' => $kom,
+                'dispozice' => $dis,
+                'riziko' => $riz,
+                'hodnota' => $hod,
+            ];
 
             $upsert->execute([
                 ':profile_id' => $profileId,
                 ':hash_id' => $hashId,
                 ':ai_score' => $aiScore,
                 ':verdict' => $verdict,
-                ':reasoning' => $reasoning !== '' ? $reasoning : null,
-                ':strengths' => !empty($json['strengths']) ? (string)$json['strengths'] : null,
-                ':weaknesses' => !empty($json['weaknesses']) ? (string)$json['weaknesses'] : null,
-                ':summary' => !empty($json['summary']) ? (string)$json['summary'] : null,
-                ':breakdown' => json_encode([
-                    'lokalita' => $lok,
-                    'komfort' => $kom,
-                    'dispozice' => $dis,
-                    'riziko' => $riz,
-                    'hodnota' => $hod,
-                ], JSON_UNESCAPED_UNICODE),
+                ':reasoning' => $reasoning,
+                ':strengths' => $strengths,
+                ':weaknesses' => $weaknesses,
+                ':summary' => $summary !== '' ? $summary : null,
+                ':breakdown' => json_encode($breakdownSafe, JSON_UNESCAPED_UNICODE),
                 ':model' => $MODEL,
                 ':prompt_version' => $PROMPT_VERSION,
             ]);
 
             $processed++;
             logLine("OK profile_id={$profileId} hash_id={$hashId} ai_score={$aiScore} verdict={$verdict}");
+
+            if (
+                $MAIL_ENABLED
+                && $aiScore >= $MAIL_MIN_SCORE
+            ) {
+                if (notificationAlreadySent($pdo, $profileId, $hashId, $MAIL_TO)) {
+                    logLine("MAIL SKIP profile_id={$profileId} hash_id={$hashId}: already sent to {$MAIL_TO}");
+                } else {
+                    $mailOk = sendInterestingEstateEmail(
+                        $task,
+                        $aiScore,
+                        $verdict,
+                        $breakdownSafe,
+                        $summary,
+                        $strengths,
+                        $weaknesses
+                    );
+
+                    if ($mailOk) {
+                        insertNotificationLog(
+                            $pdo,
+                            $profileId,
+                            $hashId,
+                            $MAIL_TO,
+                            $aiScore,
+                            $MAIL_PROVIDER,
+                            null
+                        );
+
+                        logLine("MAIL OK profile_id={$profileId} hash_id={$hashId} score={$aiScore} to={$MAIL_TO}");
+                    } else {
+                        logLine("MAIL ERROR profile_id={$profileId} hash_id={$hashId} score={$aiScore} to={$MAIL_TO}");
+                    }
+                }
+            }
 
             if (($processed % 10) === 0) {
                 refreshLock($pdo, $LOCK_NAME, $WORKER_ID, $LOCK_TTL_MINUTES);
